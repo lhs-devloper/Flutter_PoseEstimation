@@ -31,6 +31,8 @@ class MoveNet(private val interpreter: Interpreter, private var gpuDelegate: Gpu
 
         // Parameters that control how large crop region should be expanded from previous frames'
         // body keypoints.
+        private val allKeypoints : MutableList<List<KeyPoint>> = mutableListOf()
+        private var isRecording = false;
         private const val TORSO_EXPANSION_RATIO = 1.9f
         private const val BODY_EXPANSION_RATIO = 1.2f
 
@@ -150,6 +152,27 @@ class MoveNet(private val interpreter: Interpreter, private var gpuDelegate: Gpu
         }
         lastInferenceTimeNanos =
             SystemClock.elapsedRealtimeNanos() - inferenceStartTimeNanos
+
+        if(isRecording){
+            /*
+            테스트
+            if(allKeypoints.size != 100){
+                allKeypoints.add(keyPoints.map { it.copy() })
+            }else{
+                for ((frameIndex, keyPoints) in allKeypoints.withIndex()) {
+                    Log.d("POSE_LOG", "🔹 Frame $frameIndex — ${keyPoints.size} keypoints")
+
+                    for ((kpIndex, keyPoint) in keyPoints.withIndex()) {
+                        Log.d(
+                            "POSE_LOG",
+                            "  [$kpIndex] ${keyPoint.bodyPart.name}: (x=${keyPoint.coordinate.x}, y=${keyPoint.coordinate.y}, score=${keyPoint.score})"
+                        )
+                    }
+                }
+            }
+            */
+        }
+
         return listOf(Person(keyPoints = keyPoints, score = totalScore / numKeyPoints))
     }
 

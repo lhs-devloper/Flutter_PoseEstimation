@@ -5,6 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fitsSystemWindows="true"
+    android:background="#5885FB"
     tools:context=".MainActivity">
 
     <SurfaceView
@@ -16,26 +17,67 @@
         android:id="@+id/tvFps"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_alignParentStart="true"
-        android:layout_alignParentTop="true"
         android:layout_marginStart="16dp"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="8dp"
         android:background="#80000000"
         android:padding="8dp"
+        android:layout_alignParentStart="true"
         android:textColor="@android:color/white"
-        tools:text="FPS: 30" />
-
+        tools:text="FPS: 30"
+        />
     <TextView
         android:id="@+id/tvScore"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_alignParentStart="true"
         android:layout_below="@id/tvFps"
         android:layout_marginStart="16dp"
         android:layout_marginTop="8dp"
         android:background="#80000000"
         android:padding="8dp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentStart="true"
         android:textColor="@android:color/white"
-        tools:text="Score: 0.95" />
+        tools:text="Score: 0.95"
+        />
+
+
+    <!-- Top Angle Gauge Placeholder -->
+    <View
+        android:id="@+id/angleGauge"
+        android:layout_width="200dp"
+        android:layout_height="30dp"
+        android:layout_alignParentTop="true"
+        android:layout_centerHorizontal="true"
+        android:layout_marginTop="20dp"
+        android:background="#4CAF50" />
+
+    <TextView
+        android:id="@+id/instructionText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_above="@id/btnShot"
+        android:layout_centerHorizontal="true"
+        android:layout_marginBottom="16dp"
+        android:background="@drawable/instruction_bg"
+        android:padding="12dp"
+        android:text="전신 촬영을 위해 카메라 각도를 조정하세요"
+        android:textColor="@android:color/white"
+        android:textSize="16sp" />
+
+    <Button
+        android:id="@+id/btnShot"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:layout_centerHorizontal="true"
+        android:layout_marginBottom="32dp"
+        android:background="@drawable/rounded_button_bg"
+        android:paddingStart="60dp"
+        android:paddingEnd="60dp"
+        android:paddingTop="16dp"
+        android:paddingBottom="16dp"
+        android:text="정면 촬영"
+        android:textColor="@android:color/white"
+        android:textSize="18sp"
+        android:textAllCaps="false"/>
 
 </RelativeLayout>
