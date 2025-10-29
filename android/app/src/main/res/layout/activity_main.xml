@@ -1,17 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/main_layout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fitsSystemWindows="true"
     android:background="#5885FB"
-    tools:context=".MainActivity">
+    android:fitsSystemWindows="true"
+    tools:context=".PoseActivity">
 
     <SurfaceView
         android:id="@+id/surfaceView"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="1.0"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintVertical_bias="0.0" />
 
     <TextView
         android:id="@+id/tvFps"
@@ -21,95 +28,179 @@
         android:layout_marginTop="8dp"
         android:background="#80000000"
         android:padding="8dp"
-        android:layout_alignParentStart="true"
         android:textColor="@android:color/white"
-        tools:text="FPS: 30"
-        />
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        tools:text="FPS: 30" />
+
     <TextView
         android:id="@+id/tvScore"
-        android:layout_below="@id/tvFps"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
         android:layout_marginStart="16dp"
         android:layout_marginTop="8dp"
         android:background="#80000000"
         android:padding="8dp"
+        android:textColor="@android:color/white"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/tvFps"
+        tools:text="Score: 0.95" />
+
+    <TextView
+        android:id="@+id/tvDebug"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_alignParentStart="true"
+        android:layout_marginTop="8dp"
+        android:text="Pitch: 0.0, Roll: 0.0"
         android:textColor="@android:color/white"
-        tools:text="Score: 0.95"
-        />
+        android:textSize="12sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/tvScore" />
 
 
-    <!-- 상단 바 -->
-    <View
-        android:id="@+id/top_bar"
-        android:layout_width="320dp"
-        android:layout_height="30dp"
-        android:layout_alignParentTop="true"
-        android:layout_centerHorizontal="true"
-        android:layout_marginTop="20dp"
-        android:background="@drawable/rounded_button_bg" />
-    <!-- 우측 바 고정 -->
+    <!-- 상단 SeekBar -->
     <TextView
-        android:id="@+id/right_bar"
-        android:layout_width="30dp"
-        android:layout_height="640dp"
-        android:layout_marginRight="10dp"
-        android:layout_centerVertical="true"
-        android:layout_alignParentEnd="true"
-        android:background="@drawable/rounded_button_bg"
-        android:gravity="center_vertical|center_horizontal"
-        android:textColor="#FFFFFF" />
-    <!-- 상단 바 위에서 움직이는 원 -->
-    <View
-        android:id="@+id/top_circle"
-        android:layout_width="20dp"
-        android:layout_height="20dp"
-        android:layout_alignTop="@id/top_bar"
-        android:layout_marginTop="5dp"
-        android:layout_marginStart="0dp"
-        android:layout_marginLeft="0dp"
-        android:background="@drawable/circle_shape"
-        android:layout_alignParentStart="true" />
+        android:id="@+id/horizontalMinText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="-10°"
+        android:textColor="@android:color/white"
+        app:layout_constraintBottom_toBottomOf="@id/horizontalSeek"
+        app:layout_constraintEnd_toStartOf="@id/horizontalSeek"
+        app:layout_constraintTop_toTopOf="@id/horizontalSeek" />
 
-    <!-- 우측 바 위에서 움직이는 원 -->
-    <View
-        android:id="@+id/right_circle"
-        android:layout_width="20dp"
-        android:layout_height="20dp"
-        android:layout_alignStart="@id/right_bar"
-        android:layout_marginStart="5dp"
-        android:layout_alignTop="@id/right_bar"
-        android:background="@drawable/circle_shape" />
+    <SeekBar
+        android:id="@+id/horizontalSeek"
+        android:layout_width="320dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:enabled="false"
+        android:max="20"
+        android:progress="10"
+        android:progressDrawable="@drawable/seekbar_horizontal_track"
+        android:thumb="@drawable/seekbar_horizontal_thumb"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <TextView
+        android:id="@+id/horizontalMaxText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="10°"
+        android:textColor="@android:color/white"
+        app:layout_constraintBottom_toBottomOf="@id/horizontalSeek"
+        app:layout_constraintStart_toEndOf="@id/horizontalSeek"
+        app:layout_constraintTop_toTopOf="@id/horizontalSeek" />
+
+
+    <!-- 우측 SeekBar (회전하여 세로로 만듦) -->
+    <SeekBar
+        android:id="@+id/verticalSeek"
+        android:layout_width="400dp"
+        android:layout_height="wrap_content"
+        android:enabled="false"
+        android:max="20"
+        android:progress="10"
+        android:progressDrawable="@drawable/seekbar_vertical_track"
+        android:rotation="270"
+        android:thumb="@drawable/seekbar_vertical_thumb"
+        android:translationX="180dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <TextView
+        android:id="@+id/verticalMaxText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="20dp"
+        android:text="10°"
+        android:textColor="@android:color/white"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintVertical_bias="0.25" />
+
+    <TextView
+        android:id="@+id/verticalMinText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="20dp"
+        android:text="-10°"
+        android:textColor="@android:color/white"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintVertical_bias="0.75" />
+
 
     <TextView
         android:id="@+id/instructionText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_above="@id/btnShot"
-        android:layout_centerHorizontal="true"
         android:layout_marginBottom="16dp"
         android:background="@drawable/instruction_bg"
         android:padding="12dp"
         android:text="전신 촬영을 위해 카메라 각도를 조정하세요"
         android:textColor="@android:color/white"
-        android:textSize="16sp" />
+        android:textSize="16sp"
+        app:layout_constraintBottom_toTopOf="@id/btnShot"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
 
     <Button
         android:id="@+id/btnShot"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_alignParentBottom="true"
-        android:layout_centerHorizontal="true"
         android:layout_marginBottom="32dp"
-        android:background="@drawable/rounded_button_bg"
+        android:background="@drawable/button_shot_background"
         android:paddingStart="60dp"
-        android:paddingEnd="60dp"
         android:paddingTop="16dp"
+        android:paddingEnd="60dp"
         android:paddingBottom="16dp"
         android:text="정면 촬영"
+        android:textAllCaps="false"
         android:textColor="@android:color/white"
         android:textSize="18sp"
-        android:textAllCaps="false"/>
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
 
-</RelativeLayout>
+    <ImageView
+        android:id="@+id/resultImageView"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone"
+        android:scaleType="centerCrop"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
+
+    <Button
+        android:id="@+id/btnCloseResult"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="다시 측정"
+        android:visibility="gone"
+        android:layout_marginBottom="32dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
+
+    <Button
+        android:id="@+id/btnAnalyze"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="결과 분석하러 가기"
+        android:visibility="gone"
+        app:layout_constraintTop_toTopOf="@id/btnCloseResult"
+        app:layout_constraintBottom_toBottomOf="@id/btnCloseResult"
+        app:layout_constraintStart_toEndOf="@id/btnCloseResult"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.3"/>
+
+
+</androidx.constraintlayout.widget.ConstraintLayout>

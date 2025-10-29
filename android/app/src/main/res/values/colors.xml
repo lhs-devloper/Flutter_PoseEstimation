@@ -2,4 +2,11 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="ic_launcher_background">#FFFFFF</color>
+
+    <color name="gyro_horizontal_track">#D8EAD3</color>
+    <color name="gyro_horizontal_thumb">#74A877</color>
+    <color name="gyro_vertical_track">#FAD2D2</color>
+    <color name="gyro_vertical_thumb">#E26B6B</color>
+    <color name="button_disabled_gray">#BDBDBD</color>
 </resources>

@@ -16,6 +16,9 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
 import android.widget.Toast
+import android.widget.SeekBar
+import android.widget.Button
+import android.widget.ImageView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -27,6 +30,16 @@ import com.example.pose_analysis_app.ml.ModelType
 import com.example.pose_analysis_app.ml.MoveNet
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import com.example.pose_analysis_app.Data.Person
+import android.util.Log
+import android.graphics.Bitmap
+import android.graphics.PointF
+import com.example.pose_analysis_app.Data.BodyPart
+import com.example.pose_analysis_app.Data.KeyPoint
+import com.example.pose_analysis_app.VisualizationUtils
+import com.google.gson.Gson
+import android.content.Intent
+import android.app.Activity
 
 class PoseActivity : AppCompatActivity(), SensorEventListener {
     companion object {
@@ -41,17 +54,20 @@ class PoseActivity : AppCompatActivity(), SensorEventListener {
     /** A [TextView] for Value preview.   */
     private lateinit var tvScore: TextView
     private lateinit var tvFPS: TextView
-    private lateinit var topCircle: View
-    private lateinit var rightCircle: View
-    private lateinit var topBar: View
-    private lateinit var rightBar: View
-
-    private var topCirclePosX = 0f
-    private var rightCirclePosY = 0f
+    private lateinit var tvDebug: TextView
+    private lateinit var horizontalSeek: SeekBar
+    private lateinit var verticalSeek: SeekBar
+    private lateinit var btnShot: Button
+    private lateinit var resultImageView: ImageView
+    private lateinit var btnCloseResult: Button
+    private lateinit var btnAnalyze: Button
+    private lateinit var instructionText: TextView
 
     private lateinit var sensorManager: SensorManager
-    private var gyroSensor: Sensor? = null
+    private var accelerometerSensor: Sensor? = null
     private var cameraSource: CameraSource? = null
+    private var averagePersonResult: Person? = null
+
     private val requestPermissionLauncher =
         registerForActivityResult(
             ActivityResultContracts.RequestPermission()
@@ -71,14 +87,45 @@ class PoseActivity : AppCompatActivity(), SensorEventListener {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         tvScore = findViewById(R.id.tvScore)
         tvFPS = findViewById(R.id.tvFps)
+        tvDebug = findViewById(R.id.tvDebug)
+        tvDebug.visibility = View.GONE // Hide debug text view for now
         surfaceView = findViewById(R.id.surfaceView)
 
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
-        gyroSensor = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
-        topCircle = findViewById(R.id.top_circle)
-        rightCircle = findViewById(R.id.right_circle)
-        topBar = findViewById(R.id.top_bar)
-        rightBar = findViewById(R.id.right_bar)
+        accelerometerSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+
+        horizontalSeek = findViewById(R.id.horizontalSeek)
+        verticalSeek = findViewById(R.id.verticalSeek)
+        btnShot = findViewById(R.id.btnShot)
+        btnShot.isEnabled = false // Start as disabled
+        resultImageView = findViewById(R.id.resultImageView)
+        btnCloseResult = findViewById(R.id.btnCloseResult)
+        instructionText = findViewById(R.id.instructionText)
+        btnAnalyze = findViewById(R.id.btnAnalyze)
+
+        btnShot.setOnClickListener {
+            cameraSource?.let {
+                if (!it.isCollectingFrames()) {
+                    it.startFrameCollection()
+                    btnShot.text = "촬영 중... (5초)"
+                }
+            }
+        }
+
+        btnCloseResult.setOnClickListener {
+            resultImageView.visibility = View.GONE
+            btnCloseResult.visibility = View.GONE
+
+            surfaceView.visibility = View.VISIBLE
+            btnShot.visibility = View.VISIBLE
+            instructionText.visibility = View.VISIBLE
+            // Re-evaluate button state
+            onSensorChanged(null)
+        }
+
+        btnAnalyze.setOnClickListener {
+            sendResultToFlutter()
+        }
 
         if (!isCameraPermissionGranted()) {
             requestPermission()
@@ -93,8 +140,8 @@ class PoseActivity : AppCompatActivity(), SensorEventListener {
     override fun onResume() {
         cameraSource?.resume()
         super.onResume()
-        gyroSensor?.let{
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+        accelerometerSensor?.let{
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
         }
     }
 
@@ -130,6 +177,26 @@ class PoseActivity : AppCompatActivity(), SensorEventListener {
                         ) {
                             runOnUiThread {
                                 tvScore.text = getString(R.string.tfe_pe_tv_score, personScore ?: 0f)
+                            }
+                        }
+
+                        override fun onFrameCollectionFinished(persons: List<Person>, lastFrame: Bitmap?) {
+                            runOnUiThread {
+                                if (persons.isNotEmpty() && lastFrame != null) {
+                                    showToast("${persons.size}개의 프레임 수집 완료!")
+                                    processFramesWithMeanShift(persons, lastFrame)
+                                } else {
+                                    showToast("프레임 수집에 실패했습니다.")
+                                    btnShot.text = "정면 촬영"
+                                    // Re-evaluate button state based on current gyro
+                                    onSensorChanged(null)
+                                }
+                            }
+                        }
+
+                        override fun onCountdown(secondsRemaining: Int) {
+                            runOnUiThread {
+                                btnShot.text = "촬영 중... (${secondsRemaining}초)"
                             }
                         }
 
@@ -172,32 +239,165 @@ class PoseActivity : AppCompatActivity(), SensorEventListener {
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
-        if (event?.sensor?.type != Sensor.TYPE_GYROSCOPE) return
+        // Allow null event to re-evaluate button state
+        val values = event?.values
+        if (event != null && event.sensor.type != Sensor.TYPE_ACCELEROMETER) return
 
-        val rotX = event.values[0]   // pitch (위/아래)
-        val rotY = event.values[1]   // roll (좌/우)
+        val x = -(values?.get(0) ?: 0f) // Invert for left-right intuitive control
+        val y = values?.get(1) ?: 9.8f  // Keep positive for upright-to-flat mapping
 
-        // 이동 속도 계수
-        val moveFactor = 5f
+        // Horizontal (Roll) mapping for x-axis
+        val horizontal = ((x / 9.8f) * 10).coerceIn(-10f, 10f)
+        val horizontalProgress = (horizontal + 10).toInt()
+        horizontalSeek.progress = horizontalProgress
 
-        // 이동 거리 계산
-        topCirclePosX -= rotY * moveFactor
-        rightCirclePosY += rotX * moveFactor
+        // Vertical (Pitch) mapping for y-axis
+        val verticalProgress = ((-10 / 9.8f) * y + 20f).coerceIn(0f, 20f).toInt()
+        verticalSeek.progress = verticalProgress
 
-        // 경계 제한 (top_bar 너비 내에서만 이동)
-        val topBarWidth = topBar.width
-        val maxTopX = (topBarWidth - topCircle.width).toFloat().coerceAtLeast(0f)
-        topCirclePosX = topCirclePosX.coerceIn(0f, maxTopX)
+        // --- Gyro-based Button Logic ---
+        val center = 10
+        val threshold = 1
+        val isCentered = (horizontalProgress in (center - threshold)..(center + threshold)) &&
+                (verticalProgress in (center - threshold)..(center + threshold))
 
-        // 경계 제한 (right_bar 높이 내에서만 이동)
-        val rightBarHeight = rightBar.height
-        val maxRightY = (rightBarHeight - rightCircle.height).toFloat().coerceAtLeast(0f)
-        rightCirclePosY = rightCirclePosY.coerceIn(0f, maxRightY)
+        if (cameraSource?.isCollectingFrames() == true) {
+            if (!isCentered) {
+                // Cancel collection if gyro moves out of range
+                cameraSource?.cancelFrameCollection()
+                showToast("자세가 벗어나 촬영을 취소했습니다.")
+                btnShot.text = "정면 촬영"
+            }
+        } else {
+            // Enable/disable button only when not collecting
+            btnShot.isEnabled = isCentered
+        }
 
-        // 이동 적용
-        topCircle.translationX = topCirclePosX
-        rightCircle.translationY = rightCirclePosY
+        // Update colors based on progress
+        updateSeekBarColor(horizontalSeek, horizontalProgress)
+        updateSeekBarColor(verticalSeek, verticalProgress)
     }
+
+    private fun processFramesWithMeanShift(persons: List<Person>, lastFrame: Bitmap) {
+        // --- Simplified MeanShift Clustering ---
+        // 1. Flatten all keypoints into a single list of 34-dimensional vectors (17 keypoints * 2 coordinates)
+        val poses = persons.map { person ->
+            person.keyPoints.flatMap { keyPoint ->
+                listOf(keyPoint.coordinate.x, keyPoint.coordinate.y)
+            }.toFloatArray()
+        }
+
+        if (poses.isEmpty()) {
+            showToast("분석할 유효한 자세가 없습니다.")
+            return
+        }
+
+        // 2. Run a simplified clustering (find the densest point's neighborhood average)
+        val bandwidth = 20f // Pixel distance threshold for neighbors
+        var bestCenter: FloatArray? = null
+        var maxNeighbors = -1
+        var bestScores: FloatArray? = null
+
+        for (currentPose in poses) {
+            val neighbors = poses.filter { otherPose ->
+                // Calculate Euclidean distance between currentPose and otherPose
+                val distance = Math.sqrt(currentPose.zip(otherPose).sumOf { (a, b) -> ((a - b) * (a - b)).toDouble() })
+                distance < bandwidth
+            }
+
+            if (neighbors.size > maxNeighbors) {
+                maxNeighbors = neighbors.size
+                // Calculate the centroid of this neighborhood
+                val newCenter = FloatArray(currentPose.size)
+                // Also calculate the average score for each keypoint
+                val newScores = FloatArray(currentPose.size / 2)
+
+                for (neighbor in neighbors) {
+                    for (i in newCenter.indices) {
+                        newCenter[i] += neighbor[i]
+                    }
+                    // Sum up scores for each keypoint from the original Person objects
+                    // We need to find the original Person object that corresponds to this neighbor float array
+                    val originalPerson = persons.find { p ->
+                        p.keyPoints.flatMap { k -> listOf(k.coordinate.x, k.coordinate.y) }.toFloatArray().contentEquals(neighbor)
+                    }
+                    originalPerson?.keyPoints?.forEachIndexed { index, keyPoint ->
+                        newScores[index] += keyPoint.score
+                    }
+                }
+                for (i in newCenter.indices) {
+                    newCenter[i] /= neighbors.size
+                }
+                for (i in newScores.indices) {
+                    newScores[i] /= neighbors.size
+                }
+                bestCenter = newCenter
+                bestScores = newScores
+            }
+        }
+
+        // 3. Convert the center vector back to a Person object
+        val averageKeyPoints = bestCenter?.toList()?.chunked(2)?.mapIndexed { index, coords ->
+            val bodyPart = BodyPart.fromInt(index) // Assuming BodyPart enum has a mapping
+            val score = bestScores?.get(index) ?: 0.0f
+            KeyPoint(bodyPart, PointF(coords[0], coords[1]), score)
+        }
+
+        if (averageKeyPoints != null) {
+            // Calculate the overall score as the average of all keypoint scores
+            val overallScore = averageKeyPoints.map { it.score }.average().toFloat()
+            val averagePerson = Person(keyPoints = averageKeyPoints, score = overallScore)
+            averagePersonResult = averagePerson // Save the result
+
+            // --- Visualize the result ---
+            // Create a mutable copy to draw on
+            val resultBitmap = lastFrame.copy(Bitmap.Config.ARGB_8888, true)
+            // Draw the keypoints on the copy and get the result
+            val resultBitmapWithKeypoints = VisualizationUtils.drawBodyKeypoints(resultBitmap, listOf(averagePerson))
+
+            resultImageView.setImageBitmap(resultBitmapWithKeypoints)
+            resultImageView.visibility = View.VISIBLE
+            btnCloseResult.visibility = View.VISIBLE
+            btnAnalyze.visibility = View.VISIBLE
+            surfaceView.visibility = View.GONE
+            btnShot.visibility = View.GONE
+            instructionText.visibility = View.GONE
+        } else {
+            showToast("평균 자세 계산에 실패했습니다.")
+        }
+
+        btnShot.text = "정면 촬영"
+    }
+
+    private fun sendResultToFlutter() {
+        averagePersonResult?.let {
+            val gson = Gson()
+            val resultJson = gson.toJson(it)
+            val resultIntent = Intent()
+            resultIntent.putExtra("poseData", resultJson)
+            setResult(Activity.RESULT_OK, resultIntent)
+        } ?: run {
+            setResult(Activity.RESULT_CANCELED)
+        }
+        finish()
+    }
+
+    private fun updateSeekBarColor(seekBar: SeekBar, progress: Int) {
+        val center = 10
+        val threshold = 1 // +-1 from center is green zone
+        val context = this
+
+        if (progress > center + threshold || progress < center - threshold) {
+            // Out of range - Red
+            seekBar.progressDrawable.setTint(ContextCompat.getColor(context, R.color.gyro_vertical_track))
+            seekBar.thumb.setTint(ContextCompat.getColor(context, R.color.gyro_vertical_thumb))
+        } else {
+            // In range - Green
+            seekBar.progressDrawable.setTint(ContextCompat.getColor(context, R.color.gyro_horizontal_track))
+            seekBar.thumb.setTint(ContextCompat.getColor(context, R.color.gyro_horizontal_thumb))
+        }
+    }
+
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
     }

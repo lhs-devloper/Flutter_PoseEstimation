@@ -3,8 +3,11 @@ package com.example.pose_analysis_app.camera
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.ImageFormat
 import android.graphics.Matrix
+import android.graphics.Paint
 import android.graphics.Rect
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
@@ -13,9 +16,11 @@ import android.hardware.camera2.CameraManager
 import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.CountDownTimer
 import android.util.Log
 import android.view.Surface
 import android.view.SurfaceView
+import com.example.pose_analysis_app.Data.BodyPart
 import com.example.pose_analysis_app.Data.Person
 import com.example.pose_analysis_app.VisualizationUtils
 import com.example.pose_analysis_app.YuvToRgbConverter
@@ -27,6 +32,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.*
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlin.math.max
 
 class CameraSource(
     private val surfaceView: SurfaceView,
@@ -48,6 +54,12 @@ class CameraSource(
     private var isTrackerEnabled = false
     private var yuvConverter: YuvToRgbConverter = YuvToRgbConverter(surfaceView.context)
     private lateinit var imageBitmap: Bitmap
+    private var isCollectingFrames = false
+    private var countDownTimer: CountDownTimer? = null
+    val collectedFrames = mutableListOf<Person>()
+    private var lastFrame: Bitmap? = null
+
+    fun isCollectingFrames(): Boolean = isCollectingFrames
 
     /** Frame count that have been processed so far in an one second interval to calculate FPS. */
     private var fpsTimer: Timer? = null
@@ -116,6 +128,41 @@ class CameraSource(
                 session?.setRepeatingRequest(it, null, null)
             }
         }
+    }
+
+    fun startFrameCollection() {
+        if (isCollectingFrames) return // Already collecting
+
+        isCollectingFrames = true
+        collectedFrames.clear()
+        lastFrame = null
+
+        countDownTimer = object : CountDownTimer(5000, 1000) {
+            override fun onTick(millisUntilFinished: Long) {
+                val secondsRemaining = (millisUntilFinished / 1000) + 1
+                listener?.onCountdown(secondsRemaining.toInt())
+            }
+
+            override fun onFinish() {
+                stopFrameCollection()
+            }
+        }.start()
+    }
+
+    fun cancelFrameCollection() {
+        if (!isCollectingFrames) return
+        isCollectingFrames = false
+        countDownTimer?.cancel()
+        countDownTimer = null
+        collectedFrames.clear()
+        Log.d(TAG, "Frame collection cancelled.")
+    }
+
+    private fun stopFrameCollection() {
+        isCollectingFrames = false
+        countDownTimer?.cancel()
+        countDownTimer = null
+        listener?.onFrameCollectionFinished(collectedFrames.toList(), lastFrame) // send a copy
     }
 
     private suspend fun createSession(targets: List<Surface>): CameraCaptureSession =
@@ -219,6 +266,8 @@ class CameraSource(
         classifier = null
         fpsTimer?.cancel()
         fpsTimer = null
+        countDownTimer?.cancel()
+        countDownTimer = null
         frameProcessedInOneSecondInterval = 0
         framesPerSecond = 0
     }
@@ -231,6 +280,10 @@ class CameraSource(
         synchronized(lock) {
             detector?.estimatePoses(bitmap)?.let {
                 persons.addAll(it)
+                if (isCollectingFrames) {
+                    if(it.isNotEmpty()) collectedFrames.addAll(it)
+                    lastFrame = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+                }
 
                 // if the model only returns one item, allow running the Pose classifier.
                 if (persons.isNotEmpty()) {
@@ -263,10 +316,29 @@ class CameraSource(
         val holder = surfaceView.holder
         val surfaceCanvas = holder.lockCanvas()
         surfaceCanvas?.let { canvas ->
-            canvas.drawBitmap(
-                outputBitmap, Rect(0, 0, outputBitmap.width, outputBitmap.height),
-                Rect(0, 0, canvas.width, canvas.height), null
-            )
+            val screenWidth = canvas.width.toFloat()
+            val screenHeight = canvas.height.toFloat()
+            val bitmapWidth = outputBitmap.width.toFloat()
+            val bitmapHeight = outputBitmap.height.toFloat()
+
+            val screenRatio = screenWidth / screenHeight
+            val bitmapRatio = bitmapWidth / bitmapHeight
+
+            val srcRect = if (bitmapRatio > screenRatio) {
+                // Bitmap is wider than the screen, crop left/right
+                val newWidth = bitmapHeight * screenRatio
+                val xOffset = (bitmapWidth - newWidth) / 2
+                Rect(xOffset.toInt(), 0, (xOffset + newWidth).toInt(), bitmapHeight.toInt())
+            } else {
+                // Bitmap is taller than the screen, crop top/bottom
+                val newHeight = bitmapWidth / screenRatio
+                val yOffset = (bitmapHeight - newHeight) / 2
+                Rect(0, yOffset.toInt(), bitmapWidth.toInt(), (yOffset + newHeight).toInt())
+            }
+
+            val dstRect = Rect(0, 0, screenWidth.toInt(), screenHeight.toInt())
+
+            canvas.drawBitmap(outputBitmap, srcRect, dstRect, null)
             surfaceView.holder.unlockCanvasAndPost(canvas)
         }
     }
@@ -286,5 +358,9 @@ class CameraSource(
         fun onFPSListener(fps: Int)
 
         fun onDetectedInfo(personScore: Float?, poseLabels: List<Pair<String, Float>>?)
+
+        fun onFrameCollectionFinished(persons: List<Person>, lastFrame: Bitmap?)
+
+        fun onCountdown(secondsRemaining: Int)
     }
 }
