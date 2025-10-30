@@ -16,6 +16,8 @@ class PoseEstimationPage extends StatelessWidget {
         // 데이터를 현재 페이지의 상태로 저장하는 대신,
         // 바로 파싱하여 ResultPage로 전달하며 화면을 이동합니다.
         final Map<String, dynamic> poseData = jsonDecode(resultJson);
+        print("poseData");
+        print(poseData);
 
         // Navigator.push를 사용하여 ResultPage로 이동합니다.
         // MaterialPageRoute의 builder에서 ResultPage 위젯을 생성하고,

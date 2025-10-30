@@ -19,6 +19,7 @@ import android.widget.Toast
 import android.widget.SeekBar
 import android.widget.Button
 import android.widget.ImageView
+import android.widget.LinearLayout
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -41,8 +42,16 @@ import com.google.gson.Gson
 import android.content.Intent
 import android.app.Activity
 
+private enum class CaptureStep(val instruction: String) {
+    FRONT("정면을 촬영하세요"),
+    LEFT_SIDE("왼쪽 측면을 촬영하세요"),
+    RIGHT_SIDE("오른쪽 측면을 촬영하세요"),
+    RESULT("분석이 완료되었습니다.")
+}
+
 class PoseActivity : AppCompatActivity(), SensorEventListener {
     companion object {
+        private const val TAG = "PoseActivity"
         private const val FRAGMENT_DIALOG = "dialog"
     }
 
@@ -62,11 +71,20 @@ class PoseActivity : AppCompatActivity(), SensorEventListener {
     private lateinit var btnCloseResult: Button
     private lateinit var btnAnalyze: Button
     private lateinit var instructionText: TextView
+    private lateinit var thumbnailContainer: LinearLayout
+    private lateinit var thumbFront: ImageView
+    private lateinit var thumbLeft: ImageView
+    private lateinit var thumbRight: ImageView
+
 
     private lateinit var sensorManager: SensorManager
     private var accelerometerSensor: Sensor? = null
     private var cameraSource: CameraSource? = null
-    private var averagePersonResult: Person? = null
+    private var averagePersonResult: Person? = null // This will now hold the last computed person
+    private var currentStep = CaptureStep.FRONT
+    private val capturedResults = mutableMapOf<CaptureStep, Pair<Person, Bitmap>>()
+    private val resultBitmaps = mutableMapOf<CaptureStep, Bitmap>()
+
 
     private val requestPermissionLauncher =
         registerForActivityResult(
@@ -102,6 +120,11 @@ class PoseActivity : AppCompatActivity(), SensorEventListener {
         btnCloseResult = findViewById(R.id.btnCloseResult)
         instructionText = findViewById(R.id.instructionText)
         btnAnalyze = findViewById(R.id.btnAnalyze)
+        thumbnailContainer = findViewById(R.id.thumbnailContainer)
+        thumbFront = findViewById(R.id.thumbFront)
+        thumbLeft = findViewById(R.id.thumbLeft)
+        thumbRight = findViewById(R.id.thumbRight)
+        updateUiForStep(currentStep)
 
         btnShot.setOnClickListener {
             cameraSource?.let {
@@ -113,12 +136,19 @@ class PoseActivity : AppCompatActivity(), SensorEventListener {
         }
 
         btnCloseResult.setOnClickListener {
+            // Reset everything to the first step
+            capturedResults.clear()
+            resultBitmaps.clear()
+            currentStep = CaptureStep.FRONT
+            updateUiForStep(currentStep)
+
             resultImageView.visibility = View.GONE
             btnCloseResult.visibility = View.GONE
+            btnAnalyze.visibility = View.GONE
+            thumbnailContainer.visibility = View.GONE
 
             surfaceView.visibility = View.VISIBLE
             btnShot.visibility = View.VISIBLE
-            instructionText.visibility = View.VISIBLE
             // Re-evaluate button state
             onSensorChanged(null)
         }
@@ -126,6 +156,10 @@ class PoseActivity : AppCompatActivity(), SensorEventListener {
         btnAnalyze.setOnClickListener {
             sendResultToFlutter()
         }
+
+        thumbFront.setOnClickListener { selectThumbnail(CaptureStep.FRONT) }
+        thumbLeft.setOnClickListener { selectThumbnail(CaptureStep.LEFT_SIDE) }
+        thumbRight.setOnClickListener { selectThumbnail(CaptureStep.RIGHT_SIDE) }
 
         if (!isCameraPermissionGranted()) {
             requestPermission()
@@ -261,16 +295,18 @@ class PoseActivity : AppCompatActivity(), SensorEventListener {
         val isCentered = (horizontalProgress in (center - threshold)..(center + threshold)) &&
                 (verticalProgress in (center - threshold)..(center + threshold))
 
-        if (cameraSource?.isCollectingFrames() == true) {
+        if (currentStep != CaptureStep.RESULT && cameraSource?.isCollectingFrames() == true) {
             if (!isCentered) {
                 // Cancel collection if gyro moves out of range
                 cameraSource?.cancelFrameCollection()
                 showToast("자세가 벗어나 촬영을 취소했습니다.")
-                btnShot.text = "정면 촬영"
+                updateUiForStep(currentStep) // Reset button text
             }
-        } else {
+        } else if (currentStep != CaptureStep.RESULT) {
             // Enable/disable button only when not collecting
             btnShot.isEnabled = isCentered
+        } else {
+            btnShot.isEnabled = false
         }
 
         // Update colors based on progress
@@ -349,34 +385,87 @@ class PoseActivity : AppCompatActivity(), SensorEventListener {
             val averagePerson = Person(keyPoints = averageKeyPoints, score = overallScore)
             averagePersonResult = averagePerson // Save the result
 
-            // --- Visualize the result ---
-            // Create a mutable copy to draw on
-            val resultBitmap = lastFrame.copy(Bitmap.Config.ARGB_8888, true)
-            // Draw the keypoints on the copy and get the result
-            val resultBitmapWithKeypoints = VisualizationUtils.drawBodyKeypoints(resultBitmap, listOf(averagePerson))
+            // Store the result for the current step
+            capturedResults[currentStep] = Pair(averagePerson, lastFrame)
 
-            resultImageView.setImageBitmap(resultBitmapWithKeypoints)
-            resultImageView.visibility = View.VISIBLE
-            btnCloseResult.visibility = View.VISIBLE
-            btnAnalyze.visibility = View.VISIBLE
-            surfaceView.visibility = View.GONE
-            btnShot.visibility = View.GONE
-            instructionText.visibility = View.GONE
+            // --- Advance to the next step or show results ---
+            when (currentStep) {
+                CaptureStep.FRONT -> {
+                    currentStep = CaptureStep.LEFT_SIDE
+                    updateUiForStep(currentStep)
+                    onSensorChanged(null) // Re-evaluate button state for the new step
+                }
+                CaptureStep.LEFT_SIDE -> {
+                    currentStep = CaptureStep.RIGHT_SIDE
+                    updateUiForStep(currentStep)
+                    onSensorChanged(null) // Re-evaluate button state
+                }
+                CaptureStep.RIGHT_SIDE -> {
+                    currentStep = CaptureStep.RESULT
+                    updateUiForStep(currentStep)
+                    showFinalResults()
+                }
+                CaptureStep.RESULT -> {
+                    // Do nothing
+                }
+            }
         } else {
             showToast("평균 자세 계산에 실패했습니다.")
+            updateUiForStep(currentStep) // Reset button text
+        }
+    }
+
+    private fun showFinalResults() {
+        // Generate and store all result bitmaps first
+        for (step in listOf(CaptureStep.FRONT, CaptureStep.LEFT_SIDE, CaptureStep.RIGHT_SIDE)) {
+            val result = capturedResults[step]
+            if (result != null) {
+                val (person, frame) = result
+                val resultBitmap = frame.copy(Bitmap.Config.ARGB_8888, true)
+                resultBitmaps[step] = VisualizationUtils.drawBodyKeypoints(resultBitmap, listOf(person))
+            }
         }
 
-        btnShot.text = "정면 촬영"
+        // Set images to thumbnails
+        thumbFront.setImageBitmap(resultBitmaps[CaptureStep.FRONT])
+        thumbLeft.setImageBitmap(resultBitmaps[CaptureStep.LEFT_SIDE])
+        thumbRight.setImageBitmap(resultBitmaps[CaptureStep.RIGHT_SIDE])
+
+        // Show UI
+        resultImageView.visibility = View.VISIBLE
+        btnCloseResult.visibility = View.VISIBLE
+        btnAnalyze.visibility = View.VISIBLE
+        thumbnailContainer.visibility = View.VISIBLE
+
+        surfaceView.visibility = View.GONE
+        btnShot.visibility = View.GONE
+        instructionText.visibility = View.VISIBLE // Keep instruction visible
+
+        // Select front as default
+        selectThumbnail(CaptureStep.FRONT)
+    }
+
+    private fun selectThumbnail(step: CaptureStep) {
+        resultImageView.setImageBitmap(resultBitmaps[step])
+
+        thumbFront.isSelected = (step == CaptureStep.FRONT)
+        thumbLeft.isSelected = (step == CaptureStep.LEFT_SIDE)
+        thumbRight.isSelected = (step == CaptureStep.RIGHT_SIDE)
     }
 
     private fun sendResultToFlutter() {
-        averagePersonResult?.let {
+        if (capturedResults.size == 3) {
+            val resultsToSend = mapOf(
+                "FRONT" to capturedResults[CaptureStep.FRONT]!!.first,
+                "LEFT_SIDE" to capturedResults[CaptureStep.LEFT_SIDE]!!.first,
+                "RIGHT_SIDE" to capturedResults[CaptureStep.RIGHT_SIDE]!!.first
+            )
             val gson = Gson()
-            val resultJson = gson.toJson(it)
+            val resultJson = gson.toJson(resultsToSend)
             val resultIntent = Intent()
             resultIntent.putExtra("poseData", resultJson)
             setResult(Activity.RESULT_OK, resultIntent)
-        } ?: run {
+        } else {
             setResult(Activity.RESULT_CANCELED)
         }
         finish()
@@ -395,6 +484,18 @@ class PoseActivity : AppCompatActivity(), SensorEventListener {
             // In range - Green
             seekBar.progressDrawable.setTint(ContextCompat.getColor(context, R.color.gyro_horizontal_track))
             seekBar.thumb.setTint(ContextCompat.getColor(context, R.color.gyro_horizontal_thumb))
+        }
+    }
+
+    private fun updateUiForStep(step: CaptureStep) {
+        instructionText.text = step.instruction
+        when (step) {
+            CaptureStep.FRONT -> btnShot.text = "정면 촬영"
+            CaptureStep.LEFT_SIDE -> btnShot.text = "좌측 촬영"
+            CaptureStep.RIGHT_SIDE -> btnShot.text = "우측 촬영"
+            CaptureStep.RESULT -> {
+                // Handled in showFinalResults
+            }
         }
     }
 
